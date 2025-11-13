@@ -1,6 +1,18 @@
-﻿const API_URL = "https://loreal-worker.jaretva.workers.dev";
+﻿const API_URL = (() => {
+  const url = window.APP_SECRETS?.getWorkerUrl?.();
+  if (!url) {
+    console.error("Missing Cloudflare worker URL. Ensure secrets.js is loaded before script.js.");
+    return "";
+  }
+  if (window.APP_SECRETS?.destroy) {
+    window.APP_SECRETS.destroy();
+  }
+  return url;
+})();
 const SELECTED_STORAGE_KEY = "loreal-selected-products";
 const RTL_STORAGE_KEY = "loreal-rtl-pref";
+const ROUTINE_CHARACTER_LIMIT = 1800;
+const YES_FOLLOW_UP_PATTERN = /^\s*yes\s*$/i;
 
 const categoryFilter = document.getElementById("categoryFilter");
 const productSearchInput = document.getElementById("productSearch");
@@ -69,7 +81,10 @@ function attachEventListeners() {
     if (!message) return;
     appendChatMessage("user", message);
     userInput.value = "";
-    await sendMessageToWorker(message, { searchQuery: message });
+    const outboundMessage = YES_FOLLOW_UP_PATTERN.test(message)
+      ? "Yes, please share the additional steps or PM routine you offered earlier for my selected products."
+      : message;
+    await sendMessageToWorker(outboundMessage, { searchQuery: message });
   });
 }
 
@@ -262,7 +277,7 @@ async function handleRoutineGeneration() {
   );
   const detailedRequest = `I have selected these L'Oréal group products:\n${productLines.join(
     "\n"
-  )}\nCreate a personalized routine that uses them thoughtfully. Explain why each step matters and suggest helpful tips if a step is missing.`;
+  )}\nCreate a personalized routine that uses them thoughtfully. For now, only describe the AM routine and conclude by inviting the user to type YES if they'd like the PM routine or more recommendations. Explain why each AM step matters and suggest helpful tips if a step is missing. Keep the entire response under ${ROUTINE_CHARACTER_LIMIT} characters by limiting each step to two concise sentences.`;
 
   appendChatMessage("user", "Please build a personalized routine for my selected products.");
   setRoutineButtonLoading(true);
@@ -301,8 +316,10 @@ function clearChatPlaceholder() {
 }
 
 function formatTextWithLinks(text) {
-  const escaped = escapeHtml(text);
-  return escaped.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, "<br>");
+  let html = escapeHtml(text);
+  html = applyBasicMarkdown(html);
+  html = html.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return html.replace(/\n/g, "<br>");
 }
 
 function showThinkingMessage() {
@@ -322,6 +339,14 @@ function removeThinkingMessage(id) {
 }
 
 async function sendMessageToWorker(userContent, options = {}) {
+  if (!API_URL) {
+    appendChatMessage(
+      "system",
+      "Worker URL is not configured. Add your Cloudflare worker URL to secrets.js and reload the page."
+    );
+    return;
+  }
+
   const loaderId = showThinkingMessage();
   const historyWithUser = [...state.conversationHistory, { role: "user", content: userContent }];
 
@@ -343,18 +368,30 @@ async function sendMessageToWorker(userContent, options = {}) {
     }
 
     const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content?.trim();
+    const choice = data?.choices?.[0];
+    const content = choice?.message?.content?.trim();
 
     if (!content) {
       throw new Error("No response from AI");
     }
 
     removeThinkingMessage(loaderId);
-    state.conversationHistory = [...historyWithUser, { role: "assistant", content }];
-    appendChatMessage("assistant", content);
-
+    let displayContent = content;
     if (sources.length) {
-      renderSources(sources);
+      const sourcesList = sources
+        .map((source, index) => `(${index + 1}) ${source.title} - ${source.url}`)
+        .join("\n");
+      displayContent += `\n\nSources:\n${sourcesList}`;
+    }
+
+    state.conversationHistory = [...historyWithUser, { role: "assistant", content }];
+    appendChatMessage("assistant", displayContent);
+
+    if (choice?.finish_reason === "length") {
+      appendChatMessage(
+        "system",
+        "Heads up: that response was cut off when it hit the current token limit. Try a shorter request or reduce the number of selected products."
+      );
     }
   } catch (error) {
     console.error(error);
@@ -424,20 +461,6 @@ async function fetchSearchResults(query) {
   }
 }
 
-function renderSources(sources) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "chat-sources";
-  wrapper.innerHTML = `
-    <strong>Sources:</strong>
-    <ul>
-      ${sources
-        .map((source) => `<li><a href="${source.url}" target="_blank" rel="noopener">${escapeHtml(source.title)}</a></li>`)
-        .join("")}
-    </ul>
-  `;
-  chatWindow.appendChild(wrapper);
-  chatWindow.scrollTop = chatWindow.scrollHeight;
-}
 
 // ---------- Helpers ----------
 function placeholderTemplate(message) {
@@ -457,3 +480,28 @@ function escapeHtml(text = "") {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+function applyBasicMarkdown(html) {
+  const codeSnippets = [];
+
+  html = html.replace(/`([^`]+)`/g, (_, codeText) => {
+    const token = `@@CODE_${codeSnippets.length}@@`;
+    codeSnippets.push(`<code>${codeText}</code>`);
+    return token;
+  });
+
+  html = html
+    .replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([\s\S]+?)__/g, "<strong>$1</strong>")
+    .replace(/(^|[\s>_])\*([\s\S]+?)\*(?=[\s<._]|$)/g, (_, prefix, content) => `${prefix}<em>${content}</em>`)
+    .replace(/(^|[\s>])_([\s\S]+?)_(?=[\s<]|$)/g, "$1<em>$2</em>")
+    .replace(/^> (.+)$/gm, "<blockquote>$1</blockquote>");
+
+  return codeSnippets.reduce((result, snippet, index) => {
+    return result.replace(`@@CODE_${index}@@`, snippet);
+  }, html);
+}
+
+
+
+

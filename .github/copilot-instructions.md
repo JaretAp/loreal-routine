@@ -22,7 +22,7 @@ Project Requirements (Full Points Only)
 - Follow-up chat needs to accept additional user questions and respond with context-aware answers that reflect the earlier conversation.
 - Selected products should persist through a page reload and be removable or clearable by the user at any time.
 - Product descriptions have to be easy to read and access (hover overlay, modal, toggle, expanded card, etc.).
-- All API requests should go through a Cloudflare Worker so the OpenAI key never appears in the browser; use `https://loreal-worker.jaretva.workers.dev`.
+- All API requests should go through a Cloudflare Worker so the OpenAI key never appears in the browser; read the worker URL from `secrets.js` (not checked into git).
 - (LevelUp) Web search integration should let the chatbot cite fresh, real-world information with visible links or citations.
 - (LevelUp) Product search must filter by name/keyword in real time, showing matches alongside the existing category filters.
 - (LevelUp) RTL mode should flip the layout so the product grid, selected list, and chat UI all behave correctly for right-to-left languages.
