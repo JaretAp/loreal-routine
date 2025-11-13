@@ -32,6 +32,7 @@ const state = {
   filteredProducts: [],
   selectedProducts: new Map(),
   conversationHistory: [],
+  lastRoutineSearchQuery: "",
 };
 
 init();
@@ -81,10 +82,16 @@ function attachEventListeners() {
     if (!message) return;
     appendChatMessage("user", message);
     userInput.value = "";
-    const outboundMessage = YES_FOLLOW_UP_PATTERN.test(message)
+    const wantsFollowUp = YES_FOLLOW_UP_PATTERN.test(message);
+    const outboundMessage = wantsFollowUp
       ? "Yes, please share the additional steps or PM routine you offered earlier for my selected products."
       : message;
-    await sendMessageToWorker(outboundMessage, { searchQuery: message });
+    const searchQuery = wantsFollowUp && state.lastRoutineSearchQuery ? state.lastRoutineSearchQuery : message;
+    await sendMessageToWorker(outboundMessage, {
+      searchQuery,
+      productsForSources: Array.from(state.selectedProducts.values()),
+      routinePart: wantsFollowUp ? "pm" : null,
+    });
   });
 }
 
@@ -281,10 +288,14 @@ async function handleRoutineGeneration() {
 
   appendChatMessage("user", "Please build a personalized routine for my selected products.");
   setRoutineButtonLoading(true);
+  const routineSearchQuery = Array.from(state.selectedProducts.values())
+    .map((item) => item.name)
+    .join(" ");
+  state.lastRoutineSearchQuery = routineSearchQuery;
   await sendMessageToWorker(detailedRequest, {
-    searchQuery: Array.from(state.selectedProducts.values())
-      .map((item) => item.name)
-      .join(" "),
+    searchQuery: routineSearchQuery,
+    productsForSources: Array.from(state.selectedProducts.values()),
+    routinePart: "am",
   });
   setRoutineButtonLoading(false);
   updateSelectionButtons();
@@ -307,7 +318,11 @@ function appendChatMessage(role, message) {
   messageElement.className = `chat-message ${role}`;
   messageElement.innerHTML = formatTextWithLinks(message);
   chatWindow.appendChild(messageElement);
-  chatWindow.scrollTop = chatWindow.scrollHeight;
+  if (typeof messageElement.scrollIntoView === "function") {
+    messageElement.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    chatWindow.scrollTop = messageElement.offsetTop;
+  }
 }
 
 function clearChatPlaceholder() {
@@ -351,8 +366,17 @@ async function sendMessageToWorker(userContent, options = {}) {
   const historyWithUser = [...state.conversationHistory, { role: "user", content: userContent }];
 
   const shouldSearch = webSearchToggle.checked;
-  const searchQuery = (options && options.searchQuery) || userContent;
-  const sources = shouldSearch ? await fetchSearchResults(searchQuery) : [];
+  const searchQuery = options.searchQuery || userContent;
+  const productsForSources = options.productsForSources || [];
+  let sources = shouldSearch ? await fetchSearchResults(searchQuery) : [];
+
+  if (shouldSearch && (!sources || !sources.length) && productsForSources.length) {
+    sources = productsForSources.slice(0, 3).map((product) => ({
+      title: `${product.name} — Product Reference`,
+      url: product.image,
+      snippet: truncateText(product.description, 140),
+    }));
+  }
 
   const messages = buildMessages(historyWithUser, sources);
 
@@ -376,7 +400,7 @@ async function sendMessageToWorker(userContent, options = {}) {
     }
 
     removeThinkingMessage(loaderId);
-    let displayContent = content;
+    let displayContent = content.replace(/\n+Sources?:\s*\n[\s\S]*$/i, "").trimEnd();
     if (sources.length) {
       const sourcesList = sources
         .map((source, index) => `(${index + 1}) ${source.title} - ${source.url}`)
@@ -424,7 +448,7 @@ function formatSourcesForPrompt(sources) {
   const list = sources
     .map((source, index) => `${index + 1}. ${source.title} - ${source.url} :: ${source.snippet}`)
     .join("\n");
-  return `Use these live references when answering. Cite the source numbers (for example, (1)) next to the facts they support and finish with a Sources section listing the same URLs.\n${list}`;
+  return `Use these live references when answering. Cite the source numbers (for example, (1)) next to the facts they support, but do not add your own Sources section because the UI will handle that.\n${list}`;
 }
 
 async function fetchSearchResults(query) {
@@ -497,9 +521,19 @@ function applyBasicMarkdown(html) {
     .replace(/(^|[\s>])_([\s\S]+?)_(?=[\s<]|$)/g, "$1<em>$2</em>")
     .replace(/^> (.+)$/gm, "<blockquote>$1</blockquote>");
 
+  html = html
+    .replace(/^###\s+(.+)$/gm, "<strong>$1</strong>")
+    .replace(/^##\s+(.+)$/gm, "<strong>$1</strong>")
+    .replace(/^#\s+(.+)$/gm, "<strong>$1</strong>");
+
   return codeSnippets.reduce((result, snippet, index) => {
     return result.replace(`@@CODE_${index}@@`, snippet);
   }, html);
+}
+
+function truncateText(text = "", maxLength = 140) {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
 }
 
 
