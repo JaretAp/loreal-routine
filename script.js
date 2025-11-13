@@ -12,7 +12,7 @@
 const SELECTED_STORAGE_KEY = "loreal-selected-products";
 const RTL_STORAGE_KEY = "loreal-rtl-pref";
 const ROUTINE_CHARACTER_LIMIT = 1800;
-const YES_FOLLOW_UP_PATTERN = /^\s*yes\s*$/i;
+const YES_FOLLOW_UP_PATTERN = /^\s*y(?:es)?\s*$/i;
 
 const categoryFilter = document.getElementById("categoryFilter");
 const productSearchInput = document.getElementById("productSearch");
@@ -284,7 +284,7 @@ async function handleRoutineGeneration() {
   );
   const detailedRequest = `I have selected these L'Oréal group products:\n${productLines.join(
     "\n"
-  )}\nCreate a personalized routine that uses them thoughtfully. For now, only describe the AM routine and conclude by inviting the user to type YES if they'd like the PM routine or more recommendations. Explain why each AM step matters and suggest helpful tips if a step is missing. Keep the entire response under ${ROUTINE_CHARACTER_LIMIT} characters by limiting each step to two concise sentences.`;
+  )}\nCreate a personalized routine that uses them thoughtfully. For now, only describe the AM routine and conclude by inviting the user to type YES if they'd like the PM routine. Explain why each AM step matters and suggest helpful tips if a step is missing. Keep the entire response under ${ROUTINE_CHARACTER_LIMIT} characters by limiting each step to two concise sentences.`;
 
   appendChatMessage("user", "Please build a personalized routine for my selected products.");
   setRoutineButtonLoading(true);
