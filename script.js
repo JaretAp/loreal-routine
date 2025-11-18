@@ -1,14 +1,5 @@
-﻿const API_URL = (() => {
-  const url = window.APP_SECRETS?.getWorkerUrl?.();
-  if (!url) {
-    console.error("Missing Cloudflare worker URL. Ensure secrets.js is loaded before script.js.");
-    return "";
-  }
-  if (window.APP_SECRETS?.destroy) {
-    window.APP_SECRETS.destroy();
-  }
-  return url;
-})();
+﻿const API_URL = "https://loreal-worker.jaretva.workers.dev";
+
 const SELECTED_STORAGE_KEY = "loreal-selected-products";
 const RTL_STORAGE_KEY = "loreal-rtl-pref";
 const ROUTINE_CHARACTER_LIMIT = 1800;
@@ -535,6 +526,7 @@ function truncateText(text = "", maxLength = 140) {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 3)}...`;
 }
+
 
 
 
